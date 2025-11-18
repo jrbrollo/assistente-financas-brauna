@@ -1,8 +1,8 @@
-import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 import { MessageData } from '@/types'
 
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY!,
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY!,
 })
 
 const CATEGORIAS = [
@@ -52,37 +52,55 @@ export async function processExpenseMessage(
   currentDate: string = new Date().toISOString().split('T')[0]
 ): Promise<MessageData | { error: string }> {
   try {
-    const response = await client.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 1024,
-      system: SYSTEM_PROMPT,
+    const response = await client.chat.completions.create({
+      model: 'gpt-4o-mini',
       messages: [
+        {
+          role: 'system',
+          content: SYSTEM_PROMPT
+        },
         {
           role: 'user',
           content: `Data atual: ${currentDate}\n\nMensagem: "${message}"`
         }
-      ]
+      ],
+      temperature: 0.3,
+      max_tokens: 200,
+      response_format: { type: 'json_object' }
     })
 
-    const content = response.content[0]
-    if (content.type === 'text') {
-      const parsed = JSON.parse(content.text)
-
-      if (parsed.error) {
-        return { error: parsed.error }
-      }
-
-      return {
-        valor: parsed.valor,
-        categoria: parsed.categoria,
-        descricao: parsed.descricao,
-        data: parsed.data
-      }
+    const content = response.choices[0]?.message?.content
+    if (!content) {
+      return { error: 'Resposta vazia da IA' }
     }
 
-    return { error: 'Resposta inválida da IA' }
+    const parsed = JSON.parse(content)
+
+    if (parsed.error) {
+      return { error: parsed.error }
+    }
+
+    // Validações
+    if (!parsed.valor || typeof parsed.valor !== 'number' || parsed.valor <= 0) {
+      return { error: 'Valor inválido' }
+    }
+
+    if (!parsed.categoria || !CATEGORIAS.includes(parsed.categoria)) {
+      return { error: 'Categoria inválida' }
+    }
+
+    if (!parsed.descricao || !parsed.data) {
+      return { error: 'Dados incompletos' }
+    }
+
+    return {
+      valor: parsed.valor,
+      categoria: parsed.categoria,
+      descricao: parsed.descricao,
+      data: parsed.data
+    }
   } catch (error) {
-    console.error('Erro ao processar mensagem com Claude:', error)
+    console.error('Erro ao processar mensagem com OpenAI:', error)
     return { error: 'Erro ao processar mensagem' }
   }
 }
@@ -98,13 +116,16 @@ export async function generateExpenseSummary(
       return acc
     }, {} as Record<string, number>)
 
-    const response = await client.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 2048,
+    const response = await client.chat.completions.create({
+      model: 'gpt-4o-mini',
       messages: [
         {
+          role: 'system',
+          content: 'Você é um assistente financeiro amigável que cria resumos concisos de gastos em português do Brasil.'
+        },
+        {
           role: 'user',
-          content: `Crie um resumo amigável e conciso dos gastos ${period} em português do Brasil.
+          content: `Crie um resumo amigável e conciso dos gastos ${period}.
 
 Total gasto: R$ ${total.toFixed(2)}
 Número de transações: ${transactions.length}
@@ -121,12 +142,14 @@ O resumo deve:
 4. Ser breve (máximo 3-4 linhas)
 5. Incluir um emoji relevante`
         }
-      ]
+      ],
+      temperature: 0.7,
+      max_tokens: 300
     })
 
-    const content = response.content[0]
-    if (content.type === 'text') {
-      return content.text
+    const content = response.choices[0]?.message?.content
+    if (content) {
+      return content
     }
 
     return `Resumo ${period}:\nTotal: R$ ${total.toFixed(2)}\nTransações: ${transactions.length}`

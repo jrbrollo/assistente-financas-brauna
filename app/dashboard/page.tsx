@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { db } from '@/lib/firebase/client'
 import { collection, query, where, getDocs, orderBy } from 'firebase/firestore'
@@ -11,6 +11,8 @@ import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-f
 import { ptBR } from 'date-fns/locale'
 import ExpenseChart from '@/components/ExpenseChart'
 import TransactionList from '@/components/TransactionList'
+import EditTransactionModal from '@/components/EditTransactionModal'
+import DeleteConfirmModal from '@/components/DeleteConfirmModal'
 
 type Period = 'week' | 'month' | 'all'
 
@@ -19,23 +21,18 @@ export default function DashboardPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState<Period>('month')
+  const [selectedCategory, setSelectedCategory] = useState<string>('')
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null)
+  const [deletingTransaction, setDeletingTransaction] = useState<Transaction | null>(null)
+  const [actionLoading, setActionLoading] = useState(false)
+  const [successMessage, setSuccessMessage] = useState('')
   const router = useRouter()
 
-  useEffect(() => {
-    const user = getAuthUser()
-    if (!user) {
-      router.push('/login')
-      return
-    }
-
-    loadData(user.id)
-  }, [router, period])
-
-  const loadData = async (userId: string) => {
+  const loadData = useCallback(async (userId: string) => {
     setLoading(true)
 
     try {
-      // Carregar categorias do Firestore (ou usar padrões se não existir)
+      // Carregar categorias
       const categoriesRef = collection(db, COLLECTIONS.CATEGORIES)
       const categoriesSnapshot = await getDocs(categoriesRef)
 
@@ -46,7 +43,6 @@ export default function DashboardPage() {
         })) as Category[]
         setCategories(categoriesData)
       } else {
-        // Usar categorias padrão se não existirem no banco
         setCategories(DEFAULT_CATEGORIES.map((cat, idx) => ({
           id: `cat-${idx}`,
           ...cat
@@ -65,14 +61,22 @@ export default function DashboardPage() {
         endDate = endOfMonth(new Date())
       }
 
-      // Carregar transações do Firestore
+      // Carregar transações
       const transactionsRef = collection(db, COLLECTIONS.TRANSACTIONS)
       let q = query(transactionsRef, where('user_id', '==', userId))
+
+      if (selectedCategory) {
+        q = query(transactionsRef,
+          where('user_id', '==', userId),
+          where('categoria', '==', selectedCategory)
+        )
+      }
 
       if (startDate && endDate) {
         q = query(
           transactionsRef,
           where('user_id', '==', userId),
+          ...(selectedCategory ? [where('categoria', '==', selectedCategory)] : []),
           where('data', '>=', format(startDate, 'yyyy-MM-dd')),
           where('data', '<=', format(endDate, 'yyyy-MM-dd')),
           orderBy('data', 'desc')
@@ -81,6 +85,7 @@ export default function DashboardPage() {
         q = query(
           transactionsRef,
           where('user_id', '==', userId),
+          ...(selectedCategory ? [where('categoria', '==', selectedCategory)] : []),
           orderBy('data', 'desc')
         )
       }
@@ -97,6 +102,88 @@ export default function DashboardPage() {
     } finally {
       setLoading(false)
     }
+  }, [period, selectedCategory])
+
+  useEffect(() => {
+    const user = getAuthUser()
+    if (!user) {
+      router.push('/login')
+      return
+    }
+
+    loadData(user.id)
+  }, [router, period, selectedCategory, loadData])
+
+  const handleEditTransaction = async (id: string, updates: Partial<Transaction>) => {
+    setActionLoading(true)
+    try {
+      const response = await fetch(`/api/transactions/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      })
+
+      if (!response.ok) throw new Error('Erro ao atualizar')
+
+      const user = getAuthUser()
+      if (user) await loadData(user.id)
+
+      setEditingTransaction(null)
+      showSuccess('Transação atualizada com sucesso!')
+    } catch (error) {
+      console.error('Erro:', error)
+      alert('Erro ao atualizar transação')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleDeleteTransaction = async (id: string) => {
+    setActionLoading(true)
+    try {
+      const response = await fetch(`/api/transactions/${id}`, {
+        method: 'DELETE'
+      })
+
+      if (!response.ok) throw new Error('Erro ao excluir')
+
+      const user = getAuthUser()
+      if (user) await loadData(user.id)
+
+      setDeletingTransaction(null)
+      showSuccess('Transação excluída com sucesso!')
+    } catch (error) {
+      console.error('Erro:', error)
+      alert('Erro ao excluir transação')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleExportCSV = async () => {
+    const user = getAuthUser()
+    if (!user) return
+
+    try {
+      const params = new URLSearchParams({
+        user_id: user.id,
+        ...(selectedCategory && { categoria: selectedCategory }),
+        ...(period !== 'all' && {
+          data_inicio: format(period === 'week' ? startOfWeek(new Date(), { locale: ptBR }) : startOfMonth(new Date()), 'yyyy-MM-dd'),
+          data_fim: format(period === 'week' ? endOfWeek(new Date(), { locale: ptBR }) : endOfMonth(new Date()), 'yyyy-MM-dd')
+        })
+      })
+
+      window.open(`/api/transactions/export?${params}`, '_blank')
+    } catch (error) {
+      console.error('Erro ao exportar:', error)
+      alert('Erro ao exportar transações')
+    }
+  }
+
+  const showSuccess = (message: string) => {
+    setSuccessMessage(message)
+    setTimeout(() => setSuccessMessage(''), 3000)
   }
 
   const user = getAuthUser()
@@ -142,39 +229,77 @@ export default function DashboardPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Filtro de período */}
+        {/* Success Message */}
+        {successMessage && (
+          <div className="mb-6 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg flex items-center gap-2">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            {successMessage}
+          </div>
+        )}
+
+        {/* Filtros */}
         <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <div className="flex gap-4">
-            <button
-              onClick={() => setPeriod('week')}
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                period === 'week'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              Semana
-            </button>
-            <button
-              onClick={() => setPeriod('month')}
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                period === 'month'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              Mês
-            </button>
-            <button
-              onClick={() => setPeriod('all')}
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                period === 'all'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              Todos
-            </button>
+          <div className="flex flex-wrap gap-4 items-center justify-between">
+            <div className="flex gap-4">
+              <button
+                onClick={() => setPeriod('week')}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  period === 'week'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Semana
+              </button>
+              <button
+                onClick={() => setPeriod('month')}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  period === 'month'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Mês
+              </button>
+              <button
+                onClick={() => setPeriod('all')}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  period === 'all'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Todos
+              </button>
+            </div>
+
+            <div className="flex gap-4 items-center">
+              <select
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-gray-900"
+              >
+                <option value="">Todas as categorias</option>
+                {DEFAULT_CATEGORIES.map(cat => (
+                  <option key={cat.nome} value={cat.nome}>
+                    {cat.icon} {cat.nome}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                onClick={handleExportCSV}
+                disabled={transactions.length === 0}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Exportar CSV
+              </button>
+            </div>
           </div>
         </div>
 
@@ -213,10 +338,31 @@ export default function DashboardPage() {
             )}
 
             {/* Lista de transações */}
-            <TransactionList transactions={transactions} categories={categories} />
+            <TransactionList 
+              transactions={transactions} 
+              categories={categories}
+              onEdit={(t) => setEditingTransaction(t)}
+              onDelete={(t) => setDeletingTransaction(t)}
+            />
           </>
         )}
       </main>
+
+      {/* Modals */}
+      <EditTransactionModal
+        transaction={editingTransaction}
+        isOpen={!!editingTransaction}
+        onClose={() => setEditingTransaction(null)}
+        onSave={handleEditTransaction}
+      />
+
+      <DeleteConfirmModal
+        transaction={deletingTransaction}
+        isOpen={!!deletingTransaction}
+        onClose={() => setDeletingTransaction(null)}
+        onConfirm={handleDeleteTransaction}
+        loading={actionLoading}
+      />
     </div>
   )
 }

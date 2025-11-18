@@ -37,11 +37,15 @@ npm install
 2. "Gerar nova chave privada"
 3. Salve o JSON
 
-### 3. Configure a API da Anthropic
+### 3. Configure a API da OpenAI
 
-1. Acesse [Anthropic Console](https://console.anthropic.com)
-2. Gere uma API key
-3. Copie a key (sk-ant-...)
+1. Acesse [OpenAI Platform](https://platform.openai.com/)
+2. Crie uma conta (se necessário)
+3. Vá em "API Keys"
+4. Clique em "Create new secret key"
+5. Copie a key (sk-proj-...)
+
+**Por que OpenAI?** GPT-4o-mini é 20-25x mais barato que Claude para este caso de uso!
 
 ### 4. Configure o .env
 
@@ -65,8 +69,8 @@ FIREBASE_ADMIN_PROJECT_ID=seu-projeto
 FIREBASE_ADMIN_CLIENT_EMAIL=firebase-adminsdk@...iam.gserviceaccount.com
 FIREBASE_ADMIN_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nSua chave\n-----END PRIVATE KEY-----\n"
 
-# Claude API
-ANTHROPIC_API_KEY=sk-ant-...
+# OpenAI API (Recomendado - Custo-eficiente)
+OPENAI_API_KEY=sk-proj-...
 
 # Evolution API (opcional por enquanto)
 EVOLUTION_API_URL=http://localhost:8080
@@ -221,7 +225,8 @@ Pronto! Agora envie: **"Gastei 50 reais no almoço"** no WhatsApp.
 
 ### IA não categoriza
 
-→ Verifique ANTHROPIC_API_KEY no .env
+→ Verifique OPENAI_API_KEY no .env
+→ Verifique se tem créditos na conta OpenAI
 → Teste com mensagens mais claras
 
 ## 📊 Estrutura do Firestore

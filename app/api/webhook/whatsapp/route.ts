@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { adminDb } from '@/lib/firebase/admin'
 import { COLLECTIONS } from '@/lib/firebase/firestore-utils'
-import { processExpenseMessage, generateExpenseSummary } from '@/lib/ai/claude'
-import { WhatsAppWebhook } from '@/types'
+import { processExpenseMessage, generateExpenseSummary } from '@/lib/ai/openai'
+import { WhatsAppWebhook, Transaction } from '@/types'
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { FieldValue } from 'firebase-admin/firestore'
@@ -89,7 +89,7 @@ async function handleCommand(command: string, userId: string, phone: string) {
     const transactions = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
-    })) as any[]
+    })) as Transaction[]
 
     const summary = await generateExpenseSummary(transactions, 'da semana')
     await sendWhatsAppMessage(phone, summary)
@@ -116,7 +116,7 @@ async function handleCommand(command: string, userId: string, phone: string) {
     const transactions = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
-    })) as any[]
+    })) as Transaction[]
 
     const summary = await generateExpenseSummary(transactions, 'do mês')
     await sendWhatsAppMessage(phone, summary)
@@ -139,7 +139,7 @@ async function handleCommand(command: string, userId: string, phone: string) {
       return true
     }
 
-    const transactions = snapshot.docs.map(doc => doc.data()) as any[]
+    const transactions = snapshot.docs.map(doc => doc.data()) as Transaction[]
 
     const total = transactions.reduce((sum, t) => sum + Number(t.valor), 0)
     const categorias = transactions.reduce((acc, t) => {
@@ -148,8 +148,8 @@ async function handleCommand(command: string, userId: string, phone: string) {
     }, {} as Record<string, number>)
 
     const categoriasText = Object.entries(categorias)
-      .sort(([, a], [, b]) => b - a)
-      .map(([cat, val]) => `  • ${cat}: R$ ${val.toFixed(2)}`)
+      .sort(([, a], [, b]) => (b as number) - (a as number))
+      .map(([cat, val]) => `  • ${cat}: R$ ${(val as number).toFixed(2)}`)
       .join('\n')
 
     const message = `📊 *Resumo do mês:*\n\n💰 Total: R$ ${total.toFixed(2)}\n📝 Transações: ${transactions.length}\n\n*Por categoria:*\n${categoriasText}`
@@ -158,8 +158,49 @@ async function handleCommand(command: string, userId: string, phone: string) {
     return true
   }
 
+  if (lowerCommand.includes('deletar último') || lowerCommand.includes('apagar último') || lowerCommand.includes('excluir último')) {
+    const transactionsRef = adminDb.collection(COLLECTIONS.TRANSACTIONS)
+    const snapshot = await transactionsRef
+      .where('user_id', '==', userId)
+      .orderBy('created_at', 'desc')
+      .limit(1)
+      .get()
+
+    if (snapshot.empty) {
+      await sendWhatsAppMessage(phone, '❌ Você não tem gastos para deletar.')
+      return true
+    }
+
+    const lastTransaction = snapshot.docs[0]
+    const transactionData = lastTransaction.data()
+
+    await lastTransaction.ref.delete()
+
+    await sendWhatsAppMessage(
+      phone,
+      `✅ *Gasto deletado!*\n\n📝 ${transactionData.descricao}\n💰 R$ ${Number(transactionData.valor).toFixed(2)}\n📂 ${transactionData.categoria}`
+    )
+    return true
+  }
+
+  if (lowerCommand.includes('categorias') || lowerCommand === 'cats') {
+    const categoriesRef = adminDb.collection(COLLECTIONS.CATEGORIES)
+    const snapshot = await categoriesRef.orderBy('nome').get()
+
+    const categoriesList = snapshot.docs
+      .map(doc => {
+        const data = doc.data()
+        return `${data.icon} ${data.nome}`
+      })
+      .join('\n')
+
+    const message = `📂 *Categorias disponíveis:*\n\n${categoriesList}`
+    await sendWhatsAppMessage(phone, message)
+    return true
+  }
+
   if (lowerCommand.includes('ajuda') || lowerCommand.includes('help') || lowerCommand === 'oi' || lowerCommand === 'olá') {
-    const helpMessage = `👋 Olá! Eu sou seu assistente financeiro.\n\n📝 *Como registrar gastos:*\nBasta enviar uma mensagem como:\n"Gastei 50 reais no almoço"\n"Paguei 120 de uber"\n"Comprei remédio, 85 reais"\n\n📊 *Comandos disponíveis:*\n• "Gastos da semana"\n• "Gastos do mês"\n• "Resumo"\n\nEstou aqui para ajudar! 💙`
+    const helpMessage = `👋 Olá! Eu sou seu assistente financeiro.\n\n📝 *Como registrar gastos:*\nBasta enviar uma mensagem como:\n"Gastei 50 reais no almoço"\n"Paguei 120 de uber"\n"Comprei remédio, 85 reais"\n\n📊 *Comandos disponíveis:*\n• "Gastos da semana"\n• "Gastos do mês"\n• "Resumo"\n• "Deletar último"\n• "Categorias"\n\n💡 *Dica:* Acesse o dashboard web para ver gráficos e editar gastos!\n\nEstou aqui para ajudar! 💙`
 
     await sendWhatsAppMessage(phone, helpMessage)
     return true

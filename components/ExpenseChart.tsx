@@ -20,7 +20,7 @@ export default function ExpenseChart({ data }: ExpenseChartProps) {
     fill: item.cor,
   }))
 
-  const CustomTooltip = ({ active, payload }: any) => {
+  const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: Array<{ name: string; value: number }> }) => {
     if (active && payload && payload.length) {
       return (
         <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-200">

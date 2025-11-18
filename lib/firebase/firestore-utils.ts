@@ -1,20 +1,10 @@
 import {
   collection,
-  addDoc,
-  getDoc,
-  getDocs,
-  doc,
   query,
-  where,
-  orderBy,
   Timestamp,
-  QueryConstraint,
-  updateDoc,
-  deleteDoc,
-  setDoc
+  QueryConstraint
 } from 'firebase/firestore'
 import { db } from './client'
-import { adminDb } from './admin'
 
 // Collections
 export const COLLECTIONS = {
@@ -47,32 +37,6 @@ export function createQuery(
   constraints: QueryConstraint[]
 ) {
   return query(collection(db, collectionName), ...constraints)
-}
-
-// Helper para queries no server-side (admin)
-export async function getDocumentsByQuery(
-  collectionName: string,
-  constraints: Array<{ field: string; operator: any; value: any }>,
-  orderByField?: string,
-  orderDirection: 'asc' | 'desc' = 'desc'
-) {
-  let q = adminDb.collection(collectionName)
-
-  // Aplicar where constraints
-  constraints.forEach(({ field, operator, value }) => {
-    q = q.where(field, operator, value) as any
-  })
-
-  // Aplicar ordenação
-  if (orderByField) {
-    q = q.orderBy(orderByField, orderDirection) as any
-  }
-
-  const snapshot = await q.get()
-  return snapshot.docs.map(doc => ({
-    id: doc.id,
-    ...doc.data(),
-  }))
 }
 
 // Inicializar categorias padrão

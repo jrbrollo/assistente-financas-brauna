@@ -1,124 +1,165 @@
-# 🚀 Guia Rápido de Desenvolvimento
+# 🚀 Guia Rápido - Firebase Edition
 
-## Início Rápido (5 minutos)
+## Início Rápido (10 minutos)
 
 ### 1. Instale as dependências
 ```bash
 npm install
 ```
 
-### 2. Configure o Supabase
+### 2. Configure o Firebase
 
-1. Crie uma conta em [https://supabase.com](https://supabase.com)
-2. Crie um novo projeto
-3. Vá em **SQL Editor** e execute o arquivo `supabase/schema.sql`
-4. Copie as credenciais:
-   - Vá em **Settings > API**
-   - Copie a `URL` e a `anon/public key`
-   - Copie a `service_role key` (secreta!)
+#### Criar projeto Firebase (2 minutos)
+
+1. Acesse [Firebase Console](https://console.firebase.google.com/)
+2. Clique em "Adicionar projeto"
+3. Dê um nome (ex: "assistente-financas")
+4. Desabilite Google Analytics
+5. Clique em "Criar projeto"
+
+#### Configure o Firestore (1 minuto)
+
+1. Menu lateral > "Firestore Database"
+2. "Criar banco de dados"
+3. "Iniciar no modo de produção"
+4. Escolha localização: "southamerica-east1" (São Paulo)
+
+#### Obter credenciais (3 minutos)
+
+**Credenciais Web:**
+1. Configurações do projeto (engrenagem)
+2. "Seus aplicativos" > Ícone web "</>"
+3. Registre o app
+4. Copie as configurações
+
+**Service Account:**
+1. Configurações > "Contas de serviço"
+2. "Gerar nova chave privada"
+3. Salve o JSON
 
 ### 3. Configure a API da Anthropic
 
-1. Crie uma conta em [https://console.anthropic.com](https://console.anthropic.com)
+1. Acesse [Anthropic Console](https://console.anthropic.com)
 2. Gere uma API key
-3. Copie a key (começa com `sk-ant-...`)
+3. Copie a key (sk-ant-...)
 
-### 4. Configure o arquivo .env
+### 4. Configure o .env
 
 ```bash
 cp .env.example .env
 ```
 
-Edite o `.env` com suas credenciais:
+Edite com suas credenciais:
 
 ```env
-# Supabase (obrigatório)
-NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbG...
-SUPABASE_SERVICE_ROLE_KEY=eyJhbG...
+# Firebase (do passo 2)
+NEXT_PUBLIC_FIREBASE_API_KEY=AIzaSy...
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=seu-projeto.firebaseapp.com
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=seu-projeto
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=seu-projeto.appspot.com
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=123456
+NEXT_PUBLIC_FIREBASE_APP_ID=1:123456:web:abc
 
-# Claude API (obrigatório)
+# Firebase Admin (do JSON)
+FIREBASE_ADMIN_PROJECT_ID=seu-projeto
+FIREBASE_ADMIN_CLIENT_EMAIL=firebase-adminsdk@...iam.gserviceaccount.com
+FIREBASE_ADMIN_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nSua chave\n-----END PRIVATE KEY-----\n"
+
+# Claude API
 ANTHROPIC_API_KEY=sk-ant-...
 
-# Evolution API (opcional para testar sem WhatsApp)
+# Evolution API (opcional por enquanto)
 EVOLUTION_API_URL=http://localhost:8080
-EVOLUTION_API_KEY=sua-api-key
+EVOLUTION_API_KEY=seu-key
 EVOLUTION_INSTANCE_NAME=assistente-financas
-
-# Outros
-WEBHOOK_SECRET=qualquer-string-aleatoria
-NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
-### 5. Execute o projeto
+### 5. Inicialize o Firebase
+
+```bash
+npx ts-node scripts/init-firebase.ts
+```
+
+Isso cria as 9 categorias padrão no Firestore.
+
+### 6. Configure as regras de segurança
+
+1. No Firebase Console, vá em "Firestore Database" > "Regras"
+2. Cole o conteúdo de `firebase/firestore.rules`
+3. Clique em "Publicar"
+
+### 7. Crie os índices compostos
+
+No Firebase Console, vá em "Firestore Database" > "Índices" e crie:
+
+- **Collection**: `transactions`
+- **Fields**:
+  - `user_id` (Ascending)
+  - `data` (Descending)
+
+Clique em "Criar índice" (leva ~2 minutos)
+
+### 8. Execute o projeto
 
 ```bash
 npm run dev
 ```
 
-Acesse: http://localhost:3000
+Acesse: **http://localhost:3000**
 
 ## 🧪 Testando sem WhatsApp
 
-Você pode testar o sistema diretamente inserindo dados no banco:
+### Criar um usuário de teste manualmente
 
-### Criar um usuário de teste
+No Firebase Console, vá em "Firestore Database" e:
 
-No Supabase SQL Editor:
+1. Clique em "Iniciar coleção"
+2. ID da coleção: `users`
+3. ID do documento: (gerar automático)
+4. Campos:
+   ```
+   nome: "Teste User"
+   telefone: "11999999999"
+   created_at: timestamp atual
+   ```
+5. Salvar
 
-```sql
-INSERT INTO users (nome, telefone, email)
-VALUES ('Usuário Teste', '11999999999', 'teste@exemplo.com');
-```
+### Criar uma transação de teste
 
-### Testar o processamento de IA
+1. Coleção: `transactions`
+2. Campos:
+   ```
+   user_id: "[ID do usuário criado acima]"
+   valor: 50
+   categoria: "Alimentação"
+   descricao: "Almoço"
+   data: "2025-11-18"
+   created_at: timestamp atual
+   ```
 
-Crie um arquivo de teste `test-ai.ts`:
+### Fazer login no dashboard
 
-```typescript
-import { processExpenseMessage } from './lib/ai/claude'
+1. Acesse http://localhost:3000/login
+2. Digite: `11999999999`
+3. Clique em "Entrar"
 
-async function test() {
-  const result = await processExpenseMessage('Gastei 50 reais no almoço')
-  console.log(result)
-}
+Você verá as transações e gráficos! 🎉
 
-test()
-```
+## 📱 Configurar WhatsApp (Opcional)
 
-Execute:
-
-```bash
-npx ts-node test-ai.ts
-```
-
-## 📱 Configurar Evolution API (WhatsApp)
-
-### Opção 1: Docker (Recomendado)
+### Docker (Local)
 
 ```bash
 git clone https://github.com/EvolutionAPI/evolution-api.git
 cd evolution-api
-cp .env.example .env
 docker-compose up -d
 ```
 
-Acesse: http://localhost:8080
-
-### Opção 2: Cloud (Mais fácil)
-
-Use um serviço de hospedagem do Evolution API:
-- [evolution-api.com](https://evolution-api.com)
-- Railway
-- Render
-
-### Configurar instância
-
-1. Crie uma instância via API:
+### Criar instância
 
 ```bash
 curl -X POST http://localhost:8080/instance/create \
-  -H "apikey: sua-api-key" \
+  -H "apikey: sua-key" \
   -H "Content-Type: application/json" \
   -d '{
     "instanceName": "assistente-financas",
@@ -126,13 +167,13 @@ curl -X POST http://localhost:8080/instance/create \
   }'
 ```
 
-2. Escaneie o QR Code com WhatsApp Business
+Escaneie o QR Code com WhatsApp Business.
 
-3. Configure o webhook:
+### Configurar webhook
 
 ```bash
 curl -X POST http://localhost:8080/webhook/set/assistente-financas \
-  -H "apikey: sua-api-key" \
+  -H "apikey: sua-key" \
   -H "Content-Type: application/json" \
   -d '{
     "url": "http://localhost:3000/api/webhook/whatsapp",
@@ -140,182 +181,98 @@ curl -X POST http://localhost:8080/webhook/set/assistente-financas \
   }'
 ```
 
-## 🔧 Desenvolvimento
+Pronto! Agora envie: **"Gastei 50 reais no almoço"** no WhatsApp.
 
-### Estrutura de pastas
+## 🔥 Por que Firebase?
+
+### Vantagens sobre Supabase:
+
+✅ **Plano Gratuito Ilimitado**: Não há limite de 2 projetos
+✅ **50.000 leituras/dia grátis**: Suporta ~50 usuários ativos
+✅ **NoSQL simples**: Mais fácil para MVP
+✅ **Escalável**: Fácil upgrade quando crescer
+✅ **SDKs oficiais**: Melhor suporte e documentação
+
+### Limites Gratuitos:
+
+- 50.000 leituras/dia
+- 20.000 escritas/dia
+- 20.000 exclusões/dia
+- 1 GB de armazenamento
+- 10 GB de transferência/mês
+
+**Ideal para MVP!** 💪
+
+## 🐛 Problemas Comuns
+
+### "Missing or insufficient permissions"
+
+→ Configure as regras de segurança (passo 6)
+
+### "indexes required"
+
+→ Crie os índices compostos (passo 7)
+→ Ou espere 2 minutos para construção automática
+
+### Erro no Firebase Admin
+
+→ Verifique a private key no .env
+→ Certifique-se que tem `\n` preservados
+
+### IA não categoriza
+
+→ Verifique ANTHROPIC_API_KEY no .env
+→ Teste com mensagens mais claras
+
+## 📊 Estrutura do Firestore
 
 ```
-app/
-├── api/webhook/whatsapp/  → Recebe mensagens do WhatsApp
-├── dashboard/             → Dashboard principal
-├── login/                 → Autenticação
-└── page.tsx              → Landing page
+📁 users/
+  └── {userId}
+      ├── nome: string
+      ├── telefone: string
+      └── created_at: timestamp
 
-components/
-├── ExpenseChart.tsx      → Gráficos
-└── TransactionList.tsx   → Lista de transações
+📁 transactions/
+  └── {transactionId}
+      ├── user_id: string
+      ├── valor: number
+      ├── categoria: string
+      ├── descricao: string
+      ├── data: string (YYYY-MM-DD)
+      ├── created_at: timestamp
+      └── updated_at: timestamp
 
-lib/
-├── ai/claude.ts         → Processamento IA
-├── supabase/client.ts   → Cliente do banco
-└── auth.ts              → Autenticação
+📁 categories/
+  └── {categoryId}
+      ├── nome: string
+      ├── cor: string (#HEX)
+      ├── icon: string (emoji)
+      └── created_at: timestamp
 ```
 
-### Adicionar nova categoria
-
-1. No banco Supabase:
-
-```sql
-INSERT INTO categories (nome, cor, icon)
-VALUES ('Nova Categoria', '#FF5733', '🎨');
-```
-
-2. Atualizar constante em `lib/ai/claude.ts`:
-
-```typescript
-const CATEGORIAS = [
-  'Alimentação',
-  'Transporte',
-  // ...
-  'Nova Categoria'  // Adicionar aqui
-]
-```
-
-### Personalizar prompts da IA
-
-Edite o arquivo `lib/ai/claude.ts`:
-
-```typescript
-const SYSTEM_PROMPT = `
-  Seu prompt personalizado aqui...
-`
-```
-
-## 🧪 Scripts úteis
+## 🚀 Deploy na Vercel
 
 ```bash
-# Desenvolvimento
-npm run dev
+# 1. Push para GitHub
+git push
 
-# Build de produção
-npm run build
-
-# Iniciar produção
-npm start
-
-# Linter
-npm run lint
-
-# TypeScript check
-npx tsc --noEmit
+# 2. Conecte na Vercel
+# 3. Configure as mesmas variáveis do .env
+# 4. Deploy!
 ```
 
-## 🐛 Debug
-
-### Ver logs do webhook
-
-```bash
-# No terminal do Next.js, você verá:
-# "Mensagem recebida de 11999999999: Gastei 50 no almoço"
-```
-
-### Testar webhook manualmente
-
-```bash
-curl -X POST http://localhost:3000/api/webhook/whatsapp \
-  -H "Content-Type: application/json" \
-  -d '{
-    "data": {
-      "key": {
-        "remoteJid": "5511999999999@s.whatsapp.net",
-        "fromMe": false,
-        "id": "test123"
-      },
-      "pushName": "Teste",
-      "message": {
-        "conversation": "Gastei 50 reais no almoço"
-      }
-    }
-  }'
-```
-
-### Verificar banco de dados
-
-No Supabase Dashboard > Table Editor:
-- Visualize `users`
-- Visualize `transactions`
-- Visualize `categories`
-
-## 📊 Exemplos de Testes
-
-### 1. Testar registro de gasto
-
-Envie no WhatsApp:
-```
-Gastei 50 reais no almoço
-```
-
-Deve responder:
-```
-✅ Gasto registrado!
-
-💰 Valor: R$ 50.00
-📂 Categoria: Alimentação
-📝 Descrição: Almoço
-📅 Data: 18/11/2025
-```
-
-### 2. Testar consulta
-
-Envie no WhatsApp:
-```
-gastos do mês
-```
-
-Deve responder com resumo do mês.
-
-### 3. Testar dashboard
-
-1. Acesse http://localhost:3000/login
-2. Digite o telefone: `11999999999`
-3. Veja os gastos e gráficos
-
-## 🚀 Deploy Rápido (Vercel)
-
-```bash
-# 1. Instale a CLI da Vercel
-npm i -g vercel
-
-# 2. Deploy
-vercel
-
-# 3. Configure as variáveis de ambiente no painel
-# 4. Atualize o webhook do Evolution API com a nova URL
-```
+Depois atualize o webhook do Evolution API com a URL da Vercel.
 
 ## 💡 Dicas
 
-- Use `console.log` nos arquivos da pasta `app/api` para debug
-- Teste com mensagens variadas para treinar a IA
-- Use ngrok para testar webhooks localmente: `ngrok http 3000`
-- Mantenha a API key da Anthropic privada
-- Use o service role do Supabase apenas no servidor
-
-## ❓ Problemas Comuns
-
-### "Erro ao processar mensagem"
-- Verifique a API key da Anthropic
-- Veja os logs do console
-
-### "Usuário não encontrado"
-- Envie uma mensagem pelo WhatsApp primeiro
-- Ou crie manualmente no banco
-
-### "Webhook não recebe mensagens"
-- Verifique se o Evolution API está rodando
-- Confirme a URL do webhook
-- Use ngrok para testes locais
+- Use o Firebase Emulator para desenvolvimento local
+- Monitore uso no Firebase Console > "Usage"
+- Crie backups regulares das collections
+- Configure alertas de quota no Firebase
 
 ---
 
 **Pronto para começar! 🎉**
+
+Dúvidas? Veja o README.md completo.

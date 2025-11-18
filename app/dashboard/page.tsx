@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase/client'
+import { db } from '@/lib/firebase/client'
+import { collection, query, where, getDocs, orderBy } from 'firebase/firestore'
+import { COLLECTIONS, DEFAULT_CATEGORIES } from '@/lib/firebase/firestore-utils'
 import { getAuthUser, logout } from '@/lib/auth'
 import { Transaction, Category } from '@/types'
 import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns'
@@ -33,14 +35,22 @@ export default function DashboardPage() {
     setLoading(true)
 
     try {
-      // Carregar categorias
-      const { data: categoriesData } = await supabase
-        .from('categories')
-        .select('*')
-        .order('nome')
+      // Carregar categorias do Firestore (ou usar padrões se não existir)
+      const categoriesRef = collection(db, COLLECTIONS.CATEGORIES)
+      const categoriesSnapshot = await getDocs(categoriesRef)
 
-      if (categoriesData) {
+      if (!categoriesSnapshot.empty) {
+        const categoriesData = categoriesSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as Category[]
         setCategories(categoriesData)
+      } else {
+        // Usar categorias padrão se não existirem no banco
+        setCategories(DEFAULT_CATEGORIES.map((cat, idx) => ({
+          id: `cat-${idx}`,
+          ...cat
+        })))
       }
 
       // Determinar intervalo de datas
@@ -55,27 +65,33 @@ export default function DashboardPage() {
         endDate = endOfMonth(new Date())
       }
 
-      // Carregar transações
-      let query = supabase
-        .from('transactions')
-        .select('*')
-        .eq('user_id', userId)
-        .order('data', { ascending: false })
-        .order('created_at', { ascending: false })
+      // Carregar transações do Firestore
+      const transactionsRef = collection(db, COLLECTIONS.TRANSACTIONS)
+      let q = query(transactionsRef, where('user_id', '==', userId))
 
       if (startDate && endDate) {
-        query = query
-          .gte('data', format(startDate, 'yyyy-MM-dd'))
-          .lte('data', format(endDate, 'yyyy-MM-dd'))
+        q = query(
+          transactionsRef,
+          where('user_id', '==', userId),
+          where('data', '>=', format(startDate, 'yyyy-MM-dd')),
+          where('data', '<=', format(endDate, 'yyyy-MM-dd')),
+          orderBy('data', 'desc')
+        )
+      } else {
+        q = query(
+          transactionsRef,
+          where('user_id', '==', userId),
+          orderBy('data', 'desc')
+        )
       }
 
-      const { data: transactionsData, error } = await query
+      const transactionsSnapshot = await getDocs(q)
+      const transactionsData = transactionsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Transaction[]
 
-      if (error) {
-        console.error('Erro ao carregar transações:', error)
-      } else if (transactionsData) {
-        setTransactions(transactionsData)
-      }
+      setTransactions(transactionsData)
     } catch (error) {
       console.error('Erro ao carregar dados:', error)
     } finally {

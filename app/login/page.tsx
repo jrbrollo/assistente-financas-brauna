@@ -2,7 +2,10 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase/client'
+import { db } from '@/lib/firebase/client'
+import { collection, query, where, getDocs, limit } from 'firebase/firestore'
+import { COLLECTIONS } from '@/lib/firebase/firestore-utils'
+import { setAuthUser } from '@/lib/auth'
 
 export default function LoginPage() {
   const [telefone, setTelefone] = useState('')
@@ -25,23 +28,26 @@ export default function LoginPage() {
         return
       }
 
-      // Verificar se usuário existe
-      const { data: user } = await supabase
-        .from('users')
-        .select('*')
-        .eq('telefone', cleanPhone)
-        .single()
+      // Verificar se usuário existe no Firestore
+      const usersRef = collection(db, COLLECTIONS.USERS)
+      const q = query(usersRef, where('telefone', '==', cleanPhone), limit(1))
+      const querySnapshot = await getDocs(q)
 
-      if (!user) {
+      if (querySnapshot.empty) {
         setError('Usuário não encontrado. Envie uma mensagem no WhatsApp para criar sua conta.')
         setLoading(false)
         return
       }
 
-      // Salvar no localStorage (autenticação simplificada para MVP)
-      localStorage.setItem('user_id', user.id)
-      localStorage.setItem('user_phone', user.telefone)
-      localStorage.setItem('user_name', user.nome)
+      const userDoc = querySnapshot.docs[0]
+      const userData = userDoc.data()
+
+      // Salvar no localStorage usando a função auxiliar
+      setAuthUser({
+        id: userDoc.id,
+        telefone: userData.telefone,
+        nome: userData.nome,
+      })
 
       router.push('/dashboard')
     } catch (err) {

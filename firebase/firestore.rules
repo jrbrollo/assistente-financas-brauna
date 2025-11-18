@@ -1,0 +1,30 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Regras para users
+    match /users/{userId} {
+      // Permitir leitura e escrita apenas para administradores
+      // (No MVP, o acesso é feito via servidor com Admin SDK)
+      allow read, write: if false;
+    }
+
+    // Regras para transactions
+    match /transactions/{transactionId} {
+      // Permitir leitura e escrita apenas para administradores
+      // (No MVP, o acesso é feito via servidor com Admin SDK)
+      allow read, write: if false;
+    }
+
+    // Regras para categories (público para leitura)
+    match /categories/{categoryId} {
+      allow read: if true;  // Permitir leitura para todos
+      allow write: if false;  // Apenas admin pode escrever
+    }
+
+    // IMPORTANTE: Para MVP, todas as operações são feitas via Admin SDK
+    // no servidor (API Routes). As regras acima bloqueiam acesso direto.
+    // Para implementar autenticação completa com Firebase Auth, você pode
+    // modificar essas regras para permitir acesso baseado em request.auth
+  }
+}

@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase/client'
+import { adminDb } from '@/lib/firebase/admin'
+import { COLLECTIONS } from '@/lib/firebase/firestore-utils'
 import { processExpenseMessage, generateExpenseSummary } from '@/lib/ai/claude'
 import { WhatsAppWebhook } from '@/types'
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
+import { FieldValue } from 'firebase-admin/firestore'
 
 // Função para enviar mensagem de volta via Evolution API
 async function sendWhatsAppMessage(phone: string, message: string) {
@@ -37,34 +39,30 @@ async function getOrCreateUser(phone: string, name: string) {
   const cleanPhone = phone.replace(/\D/g, '')
 
   // Verificar se usuário existe
-  const { data: existingUser, error: fetchError } = await supabaseAdmin
-    .from('users')
-    .select('*')
-    .eq('telefone', cleanPhone)
-    .single()
+  const usersRef = adminDb.collection(COLLECTIONS.USERS)
+  const userQuery = await usersRef.where('telefone', '==', cleanPhone).limit(1).get()
 
-  if (existingUser) {
-    return existingUser
+  if (!userQuery.empty) {
+    const userDoc = userQuery.docs[0]
+    return {
+      id: userDoc.id,
+      ...userDoc.data(),
+    }
   }
 
   // Criar novo usuário
-  const { data: newUser, error: createError } = await supabaseAdmin
-    .from('users')
-    .insert([
-      {
-        nome: name || 'Usuário WhatsApp',
-        telefone: cleanPhone,
-      },
-    ])
-    .select()
-    .single()
+  const newUserRef = await usersRef.add({
+    nome: name || 'Usuário WhatsApp',
+    telefone: cleanPhone,
+    created_at: FieldValue.serverTimestamp(),
+    updated_at: FieldValue.serverTimestamp(),
+  })
 
-  if (createError) {
-    console.error('Erro ao criar usuário:', createError)
-    throw createError
+  const newUserDoc = await newUserRef.get()
+  return {
+    id: newUserDoc.id,
+    ...newUserDoc.data(),
   }
-
-  return newUser
 }
 
 // Função para processar comandos
@@ -75,61 +73,73 @@ async function handleCommand(command: string, userId: string, phone: string) {
     const startDate = startOfWeek(new Date(), { locale: ptBR })
     const endDate = endOfWeek(new Date(), { locale: ptBR })
 
-    const { data: transactions } = await supabaseAdmin
-      .from('transactions')
-      .select('*')
-      .eq('user_id', userId)
-      .gte('data', format(startDate, 'yyyy-MM-dd'))
-      .lte('data', format(endDate, 'yyyy-MM-dd'))
-      .order('data', { ascending: false })
+    const transactionsRef = adminDb.collection(COLLECTIONS.TRANSACTIONS)
+    const snapshot = await transactionsRef
+      .where('user_id', '==', userId)
+      .where('data', '>=', format(startDate, 'yyyy-MM-dd'))
+      .where('data', '<=', format(endDate, 'yyyy-MM-dd'))
+      .orderBy('data', 'desc')
+      .get()
 
-    if (!transactions || transactions.length === 0) {
+    if (snapshot.empty) {
       await sendWhatsAppMessage(phone, '📊 Você não tem gastos registrados nesta semana.')
-      return
+      return true
     }
+
+    const transactions = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+    })) as any[]
 
     const summary = await generateExpenseSummary(transactions, 'da semana')
     await sendWhatsAppMessage(phone, summary)
-    return
+    return true
   }
 
   if (lowerCommand.includes('gastos do mês') || lowerCommand.includes('mês') || lowerCommand.includes('mes')) {
     const startDate = startOfMonth(new Date())
     const endDate = endOfMonth(new Date())
 
-    const { data: transactions } = await supabaseAdmin
-      .from('transactions')
-      .select('*')
-      .eq('user_id', userId)
-      .gte('data', format(startDate, 'yyyy-MM-dd'))
-      .lte('data', format(endDate, 'yyyy-MM-dd'))
-      .order('data', { ascending: false })
+    const transactionsRef = adminDb.collection(COLLECTIONS.TRANSACTIONS)
+    const snapshot = await transactionsRef
+      .where('user_id', '==', userId)
+      .where('data', '>=', format(startDate, 'yyyy-MM-dd'))
+      .where('data', '<=', format(endDate, 'yyyy-MM-dd'))
+      .orderBy('data', 'desc')
+      .get()
 
-    if (!transactions || transactions.length === 0) {
+    if (snapshot.empty) {
       await sendWhatsAppMessage(phone, '📊 Você não tem gastos registrados neste mês.')
-      return
+      return true
     }
+
+    const transactions = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+    })) as any[]
 
     const summary = await generateExpenseSummary(transactions, 'do mês')
     await sendWhatsAppMessage(phone, summary)
-    return
+    return true
   }
 
   if (lowerCommand.includes('resumo') || lowerCommand.includes('total')) {
     const startDate = startOfMonth(new Date())
     const endDate = endOfMonth(new Date())
 
-    const { data: transactions } = await supabaseAdmin
-      .from('transactions')
-      .select('*')
-      .eq('user_id', userId)
-      .gte('data', format(startDate, 'yyyy-MM-dd'))
-      .lte('data', format(endDate, 'yyyy-MM-dd'))
+    const transactionsRef = adminDb.collection(COLLECTIONS.TRANSACTIONS)
+    const snapshot = await transactionsRef
+      .where('user_id', '==', userId)
+      .where('data', '>=', format(startDate, 'yyyy-MM-dd'))
+      .where('data', '<=', format(endDate, 'yyyy-MM-dd'))
+      .get()
 
-    if (!transactions || transactions.length === 0) {
+    if (snapshot.empty) {
       await sendWhatsAppMessage(phone, '📊 Você ainda não tem gastos registrados.')
-      return
+      return true
     }
+
+    const transactions = snapshot.docs.map(doc => doc.data()) as any[]
 
     const total = transactions.reduce((sum, t) => sum + Number(t.valor), 0)
     const categorias = transactions.reduce((acc, t) => {
@@ -145,14 +155,14 @@ async function handleCommand(command: string, userId: string, phone: string) {
     const message = `📊 *Resumo do mês:*\n\n💰 Total: R$ ${total.toFixed(2)}\n📝 Transações: ${transactions.length}\n\n*Por categoria:*\n${categoriasText}`
 
     await sendWhatsAppMessage(phone, message)
-    return
+    return true
   }
 
   if (lowerCommand.includes('ajuda') || lowerCommand.includes('help') || lowerCommand === 'oi' || lowerCommand === 'olá') {
     const helpMessage = `👋 Olá! Eu sou seu assistente financeiro.\n\n📝 *Como registrar gastos:*\nBasta enviar uma mensagem como:\n"Gastei 50 reais no almoço"\n"Paguei 120 de uber"\n"Comprei remédio, 85 reais"\n\n📊 *Comandos disponíveis:*\n• "Gastos da semana"\n• "Gastos do mês"\n• "Resumo"\n\nEstou aqui para ajudar! 💙`
 
     await sendWhatsAppMessage(phone, helpMessage)
-    return
+    return true
   }
 
   return false // Não é um comando conhecido
@@ -183,7 +193,7 @@ export async function POST(request: NextRequest) {
 
     // Verificar se é um comando
     const isCommand = await handleCommand(messageText, user.id, phone)
-    if (isCommand !== false) {
+    if (isCommand) {
       return NextResponse.json({ success: true, message: 'Comando processado' })
     }
 
@@ -198,25 +208,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: result.error })
     }
 
-    // Salvar transação no banco
-    const { data: transaction, error: dbError } = await supabaseAdmin
-      .from('transactions')
-      .insert([
-        {
-          user_id: user.id,
-          valor: result.valor,
-          categoria: result.categoria,
-          descricao: result.descricao,
-          data: result.data,
-        },
-      ])
-      .select()
-      .single()
+    // Salvar transação no Firestore
+    const transactionsRef = adminDb.collection(COLLECTIONS.TRANSACTIONS)
+    const newTransactionRef = await transactionsRef.add({
+      user_id: user.id,
+      valor: result.valor,
+      categoria: result.categoria,
+      descricao: result.descricao,
+      data: result.data,
+      created_at: FieldValue.serverTimestamp(),
+      updated_at: FieldValue.serverTimestamp(),
+    })
 
-    if (dbError) {
-      console.error('Erro ao salvar transação:', dbError)
-      await sendWhatsAppMessage(phone, '❌ Erro ao salvar gasto. Tente novamente.')
-      return NextResponse.json({ success: false, error: dbError.message })
+    const newTransactionDoc = await newTransactionRef.get()
+    const transaction = {
+      id: newTransactionDoc.id,
+      ...newTransactionDoc.data(),
     }
 
     // Enviar confirmação

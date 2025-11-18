@@ -1,6 +1,13 @@
 // Utilities de autenticação simplificadas para MVP
+// Usando localStorage para MVP. Para produção, considere usar Firebase Auth completo.
 
-export function getAuthUser() {
+export interface AuthUser {
+  id: string
+  telefone: string
+  nome: string
+}
+
+export function getAuthUser(): AuthUser | null {
   if (typeof window === 'undefined') return null
 
   const userId = localStorage.getItem('user_id')
@@ -14,6 +21,14 @@ export function getAuthUser() {
     telefone: userPhone || '',
     nome: userName || 'Usuário',
   }
+}
+
+export function setAuthUser(user: AuthUser) {
+  if (typeof window === 'undefined') return
+
+  localStorage.setItem('user_id', user.id)
+  localStorage.setItem('user_phone', user.telefone)
+  localStorage.setItem('user_name', user.nome)
 }
 
 export function logout() {

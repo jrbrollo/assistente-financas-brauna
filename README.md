@@ -37,7 +37,7 @@ Sistema de controle de gastos pessoais via WhatsApp com IA, desenvolvido para es
 - **Frontend/Backend**: Next.js 15 (App Router)
 - **Linguagem**: TypeScript
 - **Estilização**: Tailwind CSS
-- **Database**: Supabase (PostgreSQL)
+- **Database**: Firebase Firestore (NoSQL)
 - **WhatsApp**: Evolution API
 - **IA**: Claude 3.5 Sonnet (Anthropic)
 - **Gráficos**: Recharts
@@ -46,7 +46,7 @@ Sistema de controle de gastos pessoais via WhatsApp com IA, desenvolvido para es
 ## 📋 Pré-requisitos
 
 - Node.js 18+ e npm
-- Conta no Supabase
+- Conta no Firebase (plano gratuito Spark)
 - Evolution API configurada (WhatsApp)
 - API Key da Anthropic (Claude)
 - Git
@@ -66,7 +66,53 @@ cd assistente-financas-brauna
 npm install
 ```
 
-### 3. Configure as variáveis de ambiente
+### 3. Configure o Firebase
+
+#### 3.1. Crie um projeto no Firebase
+
+1. Acesse [Firebase Console](https://console.firebase.google.com/)
+2. Clique em "Adicionar projeto"
+3. Dê um nome ao projeto (ex: "assistente-financas")
+4. Desabilite Google Analytics (opcional para MVP)
+5. Clique em "Criar projeto"
+
+#### 3.2. Configure o Firestore
+
+1. No menu lateral, clique em "Firestore Database"
+2. Clique em "Criar banco de dados"
+3. Escolha "Iniciar no modo de produção"
+4. Escolha uma localização (ex: "southamerica-east1" para São Paulo)
+
+#### 3.3. Configure as regras de segurança
+
+1. No Firestore, vá em "Regras"
+2. Cole o conteúdo de `firebase/firestore.rules`
+3. Clique em "Publicar"
+
+#### 3.4. Crie índices compostos
+
+1. No Firestore, vá em "Índices"
+2. Crie os seguintes índices compostos manualmente:
+   - Collection: `transactions`
+   - Fields: `user_id` (ASC), `data` (DESC)
+
+Ou importe o arquivo `firebase/firestore.indexes.json` usando o Firebase CLI.
+
+#### 3.5. Obtenha as credenciais Web
+
+1. Vá em "Configurações do projeto" (ícone de engrenagem)
+2. Role até "Seus aplicativos"
+3. Clique no ícone web "</>"
+4. Registre um aplicativo (ex: "assistente-financas-web")
+5. Copie as configurações do Firebase
+
+#### 3.6. Obtenha as credenciais do Service Account
+
+1. Vá em "Configurações do projeto" > "Contas de serviço"
+2. Clique em "Gerar nova chave privada"
+3. Salve o arquivo JSON (não compartilhe!)
+
+### 4. Configure as variáveis de ambiente
 
 Copie o arquivo `.env.example` para `.env`:
 
@@ -77,10 +123,18 @@ cp .env.example .env
 Edite o `.env` com suas credenciais:
 
 ```env
-# Supabase
-NEXT_PUBLIC_SUPABASE_URL=https://seu-projeto.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=sua-anon-key
-SUPABASE_SERVICE_ROLE_KEY=sua-service-role-key
+# Firebase (das configurações web)
+NEXT_PUBLIC_FIREBASE_API_KEY=AIzaSy...
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=seu-projeto.firebaseapp.com
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=seu-projeto
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=seu-projeto.appspot.com
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=123456789
+NEXT_PUBLIC_FIREBASE_APP_ID=1:123456:web:abc123
+
+# Firebase Admin (do arquivo JSON da service account)
+FIREBASE_ADMIN_PROJECT_ID=seu-projeto
+FIREBASE_ADMIN_CLIENT_EMAIL=firebase-adminsdk@seu-projeto.iam.gserviceaccount.com
+FIREBASE_ADMIN_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nSua chave aqui\n-----END PRIVATE KEY-----\n"
 
 # Claude API
 ANTHROPIC_API_KEY=sk-ant-...
@@ -88,31 +142,22 @@ ANTHROPIC_API_KEY=sk-ant-...
 # Evolution API
 EVOLUTION_API_URL=http://localhost:8080
 EVOLUTION_API_KEY=sua-api-key
-EVOLUTION_INSTANCE_NAME=nome-da-instancia
+EVOLUTION_INSTANCE_NAME=assistente-financas
 
-# Webhook Secret
-WEBHOOK_SECRET=seu-secret-aleatorio
-
-# Next.js
+# Outros
+WEBHOOK_SECRET=qualquer-string-aleatoria
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
-### 4. Configure o banco de dados
+### 5. Inicialize o Firebase
 
-No painel do Supabase, vá em **SQL Editor** e execute o script:
+Execute o script para criar as categorias padrão:
 
 ```bash
-supabase/schema.sql
+npx ts-node scripts/init-firebase.ts
 ```
 
-Isso criará:
-- Tabelas: `users`, `transactions`, `categories`
-- Índices para performance
-- Row Level Security (RLS)
-- Views para estatísticas
-- Categorias padrão
-
-### 5. Configure o Evolution API
+### 6. Configure o Evolution API (WhatsApp)
 
 #### Instalação local (Docker):
 
@@ -136,7 +181,7 @@ curl -X POST http://localhost:8080/instance/create \
   -H "apikey: sua-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "instanceName": "nome-da-instancia",
+    "instanceName": "assistente-financas",
     "qrcode": true
   }'
 
@@ -146,20 +191,16 @@ curl -X POST http://localhost:8080/instance/create \
 #### Configure o Webhook:
 
 ```bash
-curl -X POST http://localhost:8080/webhook/set/nome-da-instancia \
+curl -X POST http://localhost:8080/webhook/set/assistente-financas \
   -H "apikey: sua-api-key" \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://seu-dominio.com/api/webhook/whatsapp",
-    "webhook_by_events": false,
-    "webhook_base64": false,
-    "events": [
-      "MESSAGES_UPSERT"
-    ]
+    "events": ["MESSAGES_UPSERT"]
   }'
 ```
 
-### 6. Execute o projeto
+### 7. Execute o projeto
 
 ```bash
 # Desenvolvimento
@@ -238,11 +279,16 @@ assistente-financas-brauna/
 ├── lib/
 │   ├── ai/
 │   │   └── claude.ts           # Integração Claude API
-│   ├── supabase/
-│   │   └── client.ts           # Cliente Supabase
+│   ├── firebase/
+│   │   ├── client.ts           # Cliente Firebase (browser)
+│   │   ├── admin.ts            # Cliente Firebase Admin (servidor)
+│   │   └── firestore-utils.ts  # Utilities do Firestore
 │   └── auth.ts                 # Utilities de autenticação
-├── supabase/
-│   └── schema.sql              # Schema do banco
+├── firebase/
+│   ├── firestore.rules         # Regras de segurança
+│   └── firestore.indexes.json  # Índices compostos
+├── scripts/
+│   └── init-firebase.ts        # Script de inicialização
 ├── types/
 │   └── index.ts                # TypeScript types
 ├── .env.example                # Exemplo de variáveis
@@ -254,11 +300,21 @@ assistente-financas-brauna/
 
 ## 🔒 Segurança
 
-- Row Level Security (RLS) no Supabase
+- Regras de segurança do Firestore
 - Validação de webhooks
 - Autenticação por telefone
 - Variáveis de ambiente para secrets
-- Service role apenas no servidor
+- Firebase Admin SDK apenas no servidor
+
+## 💰 Custos (Plano Gratuito Firebase)
+
+O Firebase oferece um plano gratuito (Spark) muito generoso:
+
+- **Firestore**: 50.000 leituras/dia, 20.000 escritas/dia, 20.000 exclusões/dia
+- **Armazenamento**: 1 GB
+- **Transfer:** 10 GB/mês
+
+Para um MVP com até ~50 usuários ativos por dia, o plano gratuito é suficiente!
 
 ## 🐛 Troubleshooting
 
@@ -278,11 +334,16 @@ assistente-financas-brauna/
 - Verifique os logs no console
 - Teste com mensagens mais claras
 
-### Erro de autenticação no Supabase
+### Erro "Missing or insufficient permissions" no Firestore
 
-- Confirme que as políticas RLS estão ativas
-- Verifique se as variáveis de ambiente estão corretas
-- Use o service role key para webhooks
+- Confirme que as regras de segurança estão configuradas
+- Verifique se o Firebase Admin está inicializado corretamente
+- Verifique se as credenciais do service account estão corretas
+
+### Erro nos índices compostos
+
+- Crie os índices manualmente no Firebase Console
+- Ou use o Firebase CLI para implantar: `firebase deploy --only firestore:indexes`
 
 ## 📊 Exemplos de Mensagens
 
@@ -313,6 +374,7 @@ assistente-financas-brauna/
 - [ ] Multi-usuário para famílias
 - [ ] Integração com Open Banking
 - [ ] App mobile (React Native)
+- [ ] Firebase Auth completo (SMS, Email)
 
 ## 🤝 Contribuindo
 
@@ -340,4 +402,4 @@ Para dúvidas ou problemas:
 
 ---
 
-**Desenvolvido com ❤️ por Braúna Planejamento Financeiro**
+**Desenvolvido com ❤️ usando Firebase**
